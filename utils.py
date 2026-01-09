@@ -20,32 +20,86 @@ def _reflect(v, n): # R = V - 2(V·N)N (slide 23 in ray_tracing)
     return v - 2.0 * np.dot(v, n) * n
 
 
-def discover_pixel_location(position, look_at, up_vector, screen_distance, screen_width, x, y, width, height):
-    # Vz = camera forward direction , Vx = right direction, Vy = up direction
-    pos = _to_vec3(position) # Eye/camera position E
-    look = _to_vec3(look_at)
-    up0 = _to_vec3(up_vector)
+# def discover_pixel_location(position, look_at, up_vector, screen_distance, screen_width, x, y, width, height):
+#     # Vz = camera forward direction , Vx = right direction, Vy = up direction
+#     pos = _to_vec3(position) # Eye/camera position E
+#     look = _to_vec3(look_at)
+#     up0 = _to_vec3(up_vector)
+#
+#     forward = _normalize(look - pos) #Vz
+#
+#     right = np.cross(up0, forward) #Vx
+#     right = _normalize(right)
+#
+#     up = np.cross(forward, right) #Vy
+#     up = _normalize(up)
+#
+#     aspect = float(height) / float(width)
+#     screen_height = screen_width * aspect
+#
+#     # P = E + Vz * f
+#     screen_center = pos + forward * float(screen_distance)
+#
+#     # Pixel coordinates normalized to [-0.5, 0.5]
+#     px = (x + 0.5) / float(width) - 0.5
+#     py = 0.5 - (y + 0.5) / float(height)
+#
+#     # rescaling back to screen size
+#     # P0 = P - w*Vx - h*Vy or P = P0 + px*w*Vx + py*h*Vy
+#     return screen_center + right * (px * screen_width) + up * (py * screen_height)
 
-    forward = _normalize(look - pos) #Vz
+# def discover_pixel_location(position, look_at, up_vector,
+#                             screen_distance, screen_width,
+#                             x, y, width, height):
+#     E = _to_vec3(position)
+#     A = _to_vec3(look_at)
+#     up0 = _to_vec3(up_vector)
+#
+#     Vz = _normalize(A - E) #forward
+#     Vx = _normalize(np.cross(up0, Vz)) #right
+#     Vy = _normalize(np.cross(Vz, Vx)) #up
+#
+#     f = float(screen_distance)
+#     aspect = float(height) / float(width)
+#     screen_height = float(screen_width) * aspect
+#
+#     w = 0.5 * float(screen_width)
+#     h = 0.5 * float(screen_height)
+#
+#     P = E + Vz * f #screen center
+#     P0 = P - w * Vx + h * Vy #top-left corner
+#
+#     dx = (2.0 * w) / float(width)
+#     dy = (2.0 * h) / float(height)
+#
+#     p = P0 + (x + 0.5) * dx * Vx - (y + 0.5) * dy * Vy
+#     return p
 
-    right = np.cross(up0, forward) #Vx
-    right = _normalize(right)
+def precompute_camera(camera, width, height):
+    E = _to_vec3(camera.position)
+    A = _to_vec3(camera.look_at)
+    up0 = _to_vec3(camera.up_vector)
 
-    up = np.cross(forward, right) #Vy
-    up = _normalize(up)
+    Vz = _normalize(A - E)
+    Vx = _normalize(np.cross(up0, Vz))
+    Vy = _normalize(np.cross(Vz, Vx))
 
+    f = float(camera.screen_distance)
+
+    screen_w = float(camera.screen_width)
     aspect = float(height) / float(width)
-    screen_height = screen_width * aspect
+    screen_h = screen_w * aspect
 
-    # P = E + Vz * f
-    screen_center = pos + forward * float(screen_distance)
+    w = 0.5 * screen_w
+    h = 0.5 * screen_h
 
-    # Pixel coordinates mapped to [-0.5, 0.5]
-    px = (x + 0.5) / float(width) - 0.5
-    py = 0.5 - (y + 0.5) / float(height)
+    P = E + Vz * f
+    P0 = P - w * Vx + h * Vy  # top-left
 
-    # P0 = P - w*Vx - h*Vy or P = P0 + px*w*Vx + py*h*Vy
-    return screen_center + right * (px * screen_width) + up * (py * screen_height)
+    step_x = (screen_w / float(width)) * Vx
+    step_y = (screen_h / float(height)) * Vy
+
+    return E, P0, step_x, step_y
 
 def construct_ray_from_camera(camera_position, pixel_position): # P = P0+tV
     origin = _to_vec3(camera_position)
@@ -69,12 +123,14 @@ def get_material_for_surface(surface, objects):
         return Material([1, 1, 1], [0, 0, 0], [0, 0, 0], 10.0, 0.0)
     return mats[idx1 - 1]
 
-def check_ray_object_intersection(ray_origin, ray_dir, objects):
+def check_ray_object_intersection(ray_origin, ray_dir, objects, ignore_obj=None):
     # Ray-Scene Intersection silde 22 in ray_casting
     closest_t = np.inf
     min_primitive = None
 
     for obj in get_geometry_objects(objects):
+        if ignore_obj is not None and obj is ignore_obj:
+            continue
         name = obj.__class__.__name__
         if name == "Sphere":
             t, p, n = intersect_sphere(ray_origin, ray_dir, obj)
@@ -134,8 +190,8 @@ def intersect_plane(origin, direction, plane):
 
     hit = origin + direction * t #P = P_0 + tV
 
-    if np.dot(n, direction) > 0:
-        n = -n
+    # if np.dot(n, direction) > 0:
+    #     n = -n
     return t, hit, n
 
 def intersect_cube(origin, direction, cube): #Intersect 3 front-facing planes, return closest
@@ -165,7 +221,8 @@ def intersect_cube(origin, direction, cube): #Intersect 3 front-facing planes, r
         if near > tmin:
             tmin = near
             hit_axis = i
-            hit_sign = -1.0 if t1 > t2 else 1.0
+            # hit_sign = -1.0 if t1 > t2 else 1.0
+            hit_sign = -1.0 if t1 < t2 else 1.0
 
         tmax = min(tmax, far)
         if tmin > tmax:
@@ -259,18 +316,19 @@ def compute_light_intensity(hit_point, light, objects, scene_settings, ignore_ob
     # light intesity=(1−shadow intensity)∗1 +shadow intensity∗(% of rays that hit the points from the light source)
     return (1.0 - light.shadow_intensity) + light.shadow_intensity * visible_ratio
 
-def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, depth):
-    #behind*transparency + local*(1-transparency) + reflection
+def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, depth, ignore_obj=None, allow_shadows=True):
 
     if depth > int(scene_settings.max_recursions):
         return np.clip(_to_vec3(scene_settings.background_color), 0.0, 1.0)
 
-    hit = check_ray_object_intersection(ray_origin, ray_dir, objects) #find the nearest intersection of the ray
+    hit = check_ray_object_intersection(ray_origin, ray_dir, objects, ignore_obj=ignore_obj) #find the nearest intersection of the ray
     if hit is None:
         return np.clip(_to_vec3(scene_settings.background_color), 0.0, 1.0)
 
     hit_point, normal, obj, _t = hit
     normal = _normalize(normal)
+    front_face = np.dot(ray_dir, normal) < 0.0
+    shading_normal = normal if front_face else -normal
 
     mat = get_material_for_surface(obj, objects) #check material
     view_dir = _normalize(-ray_dir)
@@ -286,14 +344,14 @@ def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, 
         light_dir = L / dist
 
 
-        intensity = compute_light_intensity(hit_point, light, objects, scene_settings, ignore_obj=obj) # soft shadow
+        intensity = compute_light_intensity(hit_point, light, objects, scene_settings, ignore_obj=obj) if allow_shadows else 1.0 # soft shadow
 
         # Diffuse I_diff = Kd Ip (N*L)
-        ndotl = max(np.dot(normal, light_dir), 0.0)
+        ndotl = max(np.dot(shading_normal, light_dir), 0.0)
         diffuse = _to_vec3(mat.diffuse_color) * _to_vec3(light.color) * ndotl * intensity
 
         # Specular (Phong), I_spec=Ks Ip (R·V)^n
-        R = _normalize(_reflect(-light_dir, normal)) # R = (2(L·N)N - L)
+        R = _normalize(_reflect(-light_dir, shading_normal)) # R = (2(L·N)N - L)
         spec_angle = max(np.dot(view_dir, R), 0.0) # (R·V)
         spec = (spec_angle ** float(mat.shininess)) if ndotl > 0.0 else 0.0  #(R·V)^n
         specular = _to_vec3(mat.specular_color) * _to_vec3(light.color) * spec * float(light.specular_intensity) * intensity
@@ -301,37 +359,42 @@ def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, 
         local_color += diffuse + specular # local color
 
     if depth < int(scene_settings.max_recursions) and np.any(np.array(mat.reflection_color, dtype=np.float64) > 0.0): # if mirror / reflective
-        refl_dir = _normalize(_reflect(ray_dir, normal)) #direction symmetric wrt normal
-        refl_origin = hit_point + refl_dir * EPSILON
-        refl_hit_color = compute_color_at_intersection(refl_origin, refl_dir, objects, scene_settings, depth + 1) # recursive call
+        refl_dir = _normalize(_reflect(ray_dir, shading_normal)) #direction symmetric wrt normal
+        # refl_origin = hit_point + refl_dir * EPSILON
+        refl_origin = hit_point + shading_normal * EPSILON
+        refl_hit_color = compute_color_at_intersection(refl_origin, refl_dir, objects, scene_settings, depth + 1, ignore_obj=obj, allow_shadows=False) # recursive call
         reflection_color = _to_vec3(mat.reflection_color) * refl_hit_color
 
     trans = float(mat.transparency)
     if trans > 0.0 and depth < int(scene_settings.max_recursions): #if transparent
-        behind_origin = hit_point + ray_dir * EPSILON
-        behind_color = compute_color_at_intersection(behind_origin, ray_dir, objects, scene_settings, depth + 1) # recursive call
+        # behind_origin = hit_point + ray_dir * EPSILON
+        # side = 1.0 if np.dot(ray_dir, normal) > 0.0 else -1.0
+        offset_normal = -normal if front_face else normal
 
-        # output color=(background color)·transparency+(diffuse + specular)·(1−transparency)+(reflection color)
+        behind_origin = hit_point + offset_normal * EPSILON
+        behind_color = compute_color_at_intersection(behind_origin, ray_dir, objects, scene_settings, depth + 1, ignore_obj=obj) # recursive call
+
+        # output color=(background color)·transparency + (diffuse + specular)·(1−transparency) + (reflection color)
         out = behind_color * trans + local_color * (1.0 - trans) + reflection_color
     else: # output color=(diffuse + specular)+(reflection color)
         out = local_color + reflection_color
 
     return np.clip(out, 0.0, 1.0)
 
+
 def render_scene(camera, scene_settings, objects, width, height):
     image = np.zeros((height, width, 3), dtype=np.float64)
-    cam_pos = _to_vec3(camera.position)
+
+    E, P0, step_x, step_y = precompute_camera(camera, width, height)
+    p_row_start = P0 + 0.5 * step_x - 0.5 * step_y
 
     # For each pixel
     for y in range(height):
+        p = p_row_start - y * step_y # move down
         for x in range(width):
-            pixel_pos = discover_pixel_location(
-                camera.position, camera.look_at, camera.up_vector,
-                camera.screen_distance, camera.screen_width,
-                x, y, width, height
-            )
-            origin, ray_dir = construct_ray_from_camera(cam_pos, pixel_pos) #incl finding first intersection
-            color_out = compute_color_at_intersection(origin, ray_dir, objects, scene_settings, depth=0)
+            ray_dir = _normalize(p - E)
+            color_out = compute_color_at_intersection(E, ray_dir, objects, scene_settings, depth=0)
             image[y, x] = np.clip(color_out * 255.0, 0.0, 255.0)
+            p = p + step_x  # move right
 
     return image
