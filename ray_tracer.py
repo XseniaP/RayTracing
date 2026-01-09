@@ -66,13 +66,8 @@ def main():
     # Parse the scene file
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
 
-    # Separate materials and lights from objects
-    # materials = [obj for obj in objects if isinstance(obj, Material)]
-    # lights = [obj for obj in objects if isinstance(obj, Light)]
+    # Render the scene
     image_array = render_scene(camera, scene_settings, objects, 500, 500)
-
-    # Dummy result
-    # image_array = np.zeros((500, 500, 3))
 
     # Save the output image
     save_image(image_array)
