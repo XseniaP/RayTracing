@@ -48,11 +48,11 @@ def parse_scene_file(file_path):
     return camera, scene_settings, objects
 
 
-def save_image(image_array):
+def save_image(image_array, output_file="scenes/Spheres.png"):
     image = Image.fromarray(np.uint8(image_array))
 
     # Save the image to a file
-    image.save("scenes/Spheres.png")
+    image.save(output_file)
 
 
 def main():
@@ -70,7 +70,7 @@ def main():
     image_array = render_scene(camera, scene_settings, objects, 500, 500)
 
     # Save the output image
-    save_image(image_array)
+    save_image(image_array, args.output_image)
 
 
 if __name__ == '__main__':
