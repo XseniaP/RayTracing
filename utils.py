@@ -294,17 +294,17 @@ def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, 
         local_color += diffuse + specular # local color
 
     kr = _to_vec3(mat.reflection_color)
-    C_refl = np.zeros(3, dtype=np.float64)
+    C = local_color.copy()
 
     reflective = (depth < int(scene_settings.max_recursions)) and np.any(kr > 0.0)
     if reflective:
-        refl_dir = _normalize(_reflect(ray_dir, shading_normal)) #direction symmetric wrt normal
+        refl_dir = _normalize(_reflect(ray_dir, shading_normal))
         refl_origin = hit_point + shading_normal * EPSILON
         C_refl = compute_color_at_intersection(
             refl_origin, refl_dir, objects, scene_settings, depth + 1, ignore_obj=obj
-        ) #recursive call
+        )
+        C = C + kr * C_refl
 
-    C = (1.0 - kr) * local_color + kr * C_refl
     kt = float(mat.transparency)
 
     transparent = (depth < int(scene_settings.max_recursions)) and (kt > 0.0)
