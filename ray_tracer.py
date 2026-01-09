@@ -1,5 +1,4 @@
 import argparse
-import time
 
 from PIL import Image
 import numpy as np
@@ -69,10 +68,7 @@ def main():
     camera, scene_settings, objects = parse_scene_file(args.scene_file)
 
     # Render the scene
-    # start = time.time()
     image_array = render_scene(camera, scene_settings, objects, 500, 500)
-    # end = time.time()
-    # print("Rendering time: {:.2f} seconds".format(end - start))
 
     # Save the output image
     save_image(image_array, args.output_image)
