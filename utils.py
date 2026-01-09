@@ -46,11 +46,6 @@ def precompute_camera(camera, width, height):
 
     return E, P0, step_x, step_y
 
-def construct_ray_from_camera(camera_position, pixel_position): # P = P0+tV
-    origin = _to_vec3(camera_position)
-    direction = _normalize(_to_vec3(pixel_position) - origin)
-    return origin, direction
-
 def get_lights(objects):
     return [o for o in objects if isinstance(o, Light)]
 
@@ -75,6 +70,7 @@ def check_ray_object_intersection(ray_origin, ray_dir, objects, ignore_obj=None)
     for obj in get_geometry_objects(objects):
         if ignore_obj is not None and obj is ignore_obj:
             continue
+
         name = obj.__class__.__name__
         if name == "Sphere":
             t, p, n = intersect_sphere(ray_origin, ray_dir, obj)
@@ -275,7 +271,6 @@ def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, 
     view_dir = _normalize(-ray_dir)
 
     local_color = np.zeros(3, dtype=np.float64)
-    reflection_color = np.zeros(3, dtype=np.float64)
 
     for light in get_lights(objects): # Diffuse + Specular
         L = _to_vec3(light.position) - hit_point
@@ -298,25 +293,30 @@ def compute_color_at_intersection(ray_origin, ray_dir, objects, scene_settings, 
 
         local_color += diffuse + specular # local color
 
-    if depth < int(scene_settings.max_recursions) and np.any(np.array(mat.reflection_color, dtype=np.float64) > 0.0): # if mirror / reflective
+    kr = _to_vec3(mat.reflection_color)
+    C_refl = np.zeros(3, dtype=np.float64)
+
+    reflective = (depth < int(scene_settings.max_recursions)) and np.any(kr > 0.0)
+    if reflective:
         refl_dir = _normalize(_reflect(ray_dir, shading_normal)) #direction symmetric wrt normal
         refl_origin = hit_point + shading_normal * EPSILON
-        refl_hit_color = compute_color_at_intersection(refl_origin, refl_dir, objects, scene_settings, depth + 1, ignore_obj=obj, allow_shadows=False) # recursive call
-        reflection_color = _to_vec3(mat.reflection_color) * refl_hit_color
+        C_refl = compute_color_at_intersection(
+            refl_origin, refl_dir, objects, scene_settings, depth + 1, ignore_obj=obj
+        ) #recursive call
 
-    trans = float(mat.transparency)
-    if trans > 0.0 and depth < int(scene_settings.max_recursions): #if transparent
+    C = (1.0 - kr) * local_color + kr * C_refl
+    kt = float(mat.transparency)
+
+    transparent = (depth < int(scene_settings.max_recursions)) and (kt > 0.0)
+    if transparent:
         offset_normal = -normal if front_face else normal
-
         behind_origin = hit_point + offset_normal * EPSILON
-        behind_color = compute_color_at_intersection(behind_origin, ray_dir, objects, scene_settings, depth + 1, ignore_obj=obj) # recursive call
+        C_through = compute_color_at_intersection(
+            behind_origin, ray_dir, objects, scene_settings, depth + 1, ignore_obj=obj
+        ) #recursive call
+        C = (1.0 - kt) * C + kt * C_through
 
-        # output color=(background color)·transparency + (diffuse + specular)·(1−transparency) + (reflection color)
-        out = behind_color * trans + local_color * (1.0 - trans) + reflection_color
-    else: # output color=(diffuse + specular)+(reflection color)
-        out = local_color + reflection_color
-
-    return np.maximum(out, 0.0)
+    return C
 
 def render_scene(camera, scene_settings, objects, width, height):
     image = np.zeros((height, width, 3), dtype=np.float64)
